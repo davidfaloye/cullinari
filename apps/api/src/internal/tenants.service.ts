@@ -88,13 +88,15 @@ export class TenantsService {
   }
 
   async setOverride(tenantId: string, o: { key: string; value: unknown; reason: string; expiresAt?: Date }, actorId: string | null = null) {
+    // A JS null would become SQL NULL; "unlimited" must be stored as the JSON value null.
+    const value = (o.value === null ? sql`'null'::jsonb` : o.value) as never;
     const row = await this.db.tenant(tenantId, async (tx) => {
       const [saved] = await tx
         .insert(tenantOverrides)
-        .values({ tenantId, key: o.key, value: o.value as never, reason: o.reason, expiresAt: o.expiresAt ?? null, createdBy: actorId })
+        .values({ tenantId, key: o.key, value, reason: o.reason, expiresAt: o.expiresAt ?? null, createdBy: actorId })
         .onConflictDoUpdate({
           target: [tenantOverrides.tenantId, tenantOverrides.key],
-          set: { value: o.value as never, reason: o.reason, expiresAt: o.expiresAt ?? null },
+          set: { value, reason: o.reason, expiresAt: o.expiresAt ?? null },
         })
         .returning();
       await this.audit.record(tx, { tenantId, actorId, action: 'override.set', entity: 'tenant_override', entityId: saved.id, after: o });
