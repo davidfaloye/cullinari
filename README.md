@@ -1,6 +1,6 @@
 # Cullinari
 
-Restaurant admin platform and ordering-app backend. One multi-tenant API serves the restaurant admin (this repo's `apps/admin`), each restaurant's white-labelled ordering app, and later the Cullinari staff console.
+Restaurant admin platform and white-label ordering apps. One multi-tenant API serves the restaurant admin (`apps/admin`), each restaurant's own ordering app on Google Play and the App Store (`apps/ordering`), and later the Cullinari staff console.
 
 | Plan | Monthly | App setup | Orders / day | Inventory items | Branches |
 | --- | --- | --- | --- | --- | --- |
@@ -14,6 +14,7 @@ Restaurant admin platform and ordering-app backend. One multi-tenant API serves 
 apps/
   api/      NestJS API, Postgres via Drizzle ORM, Socket.IO for live orders
   admin/    React + Vite admin dashboard (admin.cullinari.com)
+  ordering/ Expo (React Native) ordering app, built per restaurant (see apps/ordering/README.md)
 packages/
   shared/   Plan entitlements, error codes, order statuses and types used by every app
 scripts/    Database role setup
@@ -79,7 +80,8 @@ Admin endpoints need `Authorization: Bearer <token>` from `POST /auth/login`. Ro
 | Owner | `GET/PATCH /settings`, `GET /billing` |
 | Ordering app (public) | `GET /public/:slug`, `GET /public/:slug/menu`, `POST /public/:slug/orders`, `GET /public/:slug/orders/:trackingToken`, `POST /public/:slug/payments/:reference/verify` |
 | Webhooks | `POST /webhooks/paystack/:slug` (signature checked with that restaurant's key, idempotent) |
-| Staff (`x-staff-key`) | `GET/POST /internal/tenants`, `PATCH /internal/tenants/:id`, `POST /internal/tenants/:id/overrides` |
+| Payment return | `GET /public/:slug/payments/return` (Paystack callback; confirms and redirects into the app) |
+| Staff (`x-staff-key`) | `GET/POST /internal/tenants`, `PATCH /internal/tenants/:id`, `POST /internal/tenants/:id/overrides`, `POST /internal/apps/:slug/configs`, `POST /internal/apps/:slug/configs/:version/publish`, `GET /internal/apps/:slug/build-config` |
 
 Live events: Socket.IO namespace `/admin`, authenticated with the same token; events `order.created`, `order.updated`, `usage.updated`.
 
@@ -103,12 +105,14 @@ Done in this repo:
 - Daily order cap and the other caps, enforced server-side with tests
 - Paystack checkout and webhooks; Expo push notifications on order status
 - Manual onboarding via CLI and staff-key endpoints
+- Expo ordering app, personalised per restaurant from one codebase, with plan-gated layouts and options
+- EAS build-and-submit and over-the-air update workflows (GitHub Actions)
 
 Still to build for Phase 1:
 
-- The Expo ordering app (consumes the `/public/:slug` endpoints) and the EAS build-and-submit pipeline
-- Image uploads to S3-compatible storage (menu items take an image URL for now)
+- Image uploads to S3-compatible storage (menu items and app art take image URLs for now)
 - Expiring unpaid card orders after a timeout, and refunds from the admin
+- App settings screen in the admin/console (app configs are created through the staff API for now)
 
 Before running more than one API instance: move the entitlements cache, rate limiter and Socket.IO adapter to Redis.
 

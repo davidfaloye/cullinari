@@ -1,0 +1,15 @@
+# EAS uploads the repo for each build. Like .gitignore, except generated restaurant
+# build configs (apps/ordering/tenants/current and downloaded art) must be included.
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.expo/
+apps/ordering/ios/
+apps/ordering/android/

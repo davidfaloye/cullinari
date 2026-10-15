@@ -1,0 +1,72 @@
+# Ships a JavaScript update to restaurants' installed apps over the air (EAS Update),
+# without a store release. Only for code and UI changes; native changes (new permissions,
+# SDK upgrades, a new icon or app name) need a new store build instead.
+name: Update restaurant apps (OTA)
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: What changed (shown in the EAS dashboard)
+        required: true
+      slugs:
+        description: Comma-separated slugs, or leave empty for every restaurant with an EAS project
+        required: false
+        default: ""
+      channel:
+        description: Channel
+        type: choice
+        options: [production, preview]
+        default: production
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    outputs:
+      slugs: ${{ steps.pick.outputs.slugs }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: pick
+        env:
+          ONLY: ${{ inputs.slugs }}
+        run: |
+          slugs=$(node -e '
+            const fs = require("fs");
+            const only = (process.env.ONLY || "").split(",").map((s) => s.trim()).filter(Boolean);
+            const all = fs.readdirSync("apps/ordering/tenants").filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5));
+            const ok = all.filter((s) => (!only.length || only.includes(s)) && JSON.parse(fs.readFileSync(`apps/ordering/tenants/${s}.json`)).eas?.projectId);
+            console.log(JSON.stringify(ok));')
+          echo "slugs=$slugs" >> "$GITHUB_OUTPUT"
+          echo "Updating: $slugs"
+
+  update:
+    needs: list
+    if: needs.list.outputs.slugs != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        slug: ${{ fromJson(needs.list.outputs.slugs) }}
+    env:
+      CULLINARI_TENANT: ${{ matrix.slug }}
+      MESSAGE: ${{ inputs.message }}
+      CHANNEL: ${{ inputs.channel }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @cullinari/shared build
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Publish update
+        working-directory: apps/ordering
+        run: |
+          echo "$CULLINARI_TENANT" > tenants/current
+          eas update --channel "$CHANNEL" --message "$MESSAGE" --non-interactive

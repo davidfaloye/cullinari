@@ -33,6 +33,8 @@ export class PushService {
         body,
         data: { trackingToken, status },
         sound: 'default',
+        // Matches the channel the ordering app creates on Android.
+        channelId: 'orders',
       }),
     })
       .then((r) => {

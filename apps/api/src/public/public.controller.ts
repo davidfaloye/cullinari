@@ -167,7 +167,7 @@ export class PublicController {
         .where(eq(orders.trackingToken, token));
       if (!order) throw notFound('Order');
       const items = await tx
-        .select({ name: orderItems.name, quantity: orderItems.quantity, unitPriceMinor: orderItems.unitPriceMinor })
+        .select({ menuItemId: orderItems.menuItemId, name: orderItems.name, quantity: orderItems.quantity, unitPriceMinor: orderItems.unitPriceMinor })
         .from(orderItems)
         .where(eq(orderItems.orderId, order.id));
       const { id: _id, ...rest } = order;

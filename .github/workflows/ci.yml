@@ -42,3 +42,22 @@ jobs:
       - run: pnpm --filter @cullinari/api typecheck
       - run: pnpm --filter @cullinari/api test
       - run: pnpm --filter @cullinari/admin build
+
+  ordering-app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @cullinari/shared build
+      - name: Typecheck
+        run: pnpm --filter @cullinari/ordering typecheck
+      - name: Unit tests
+        run: pnpm --filter @cullinari/ordering test
+      - name: Bundle for Android and iOS (demo restaurant)
+        working-directory: apps/ordering
+        run: npx expo export --platform android --platform ios --output-dir /tmp/ordering-export

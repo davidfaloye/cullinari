@@ -225,7 +225,7 @@ export const APP_LAYOUTS = ['list', 'grid', 'featured'] as const;
 export type AppLayout = (typeof APP_LAYOUTS)[number];
 
 /** Extra app options sold on Growth ("a few, chosen at setup") and Pro ("all"). */
-export const APP_OPTIONS = ['promo_banner', 'scheduled_orders', 'pickup_only', 'delivery_only', 'reorder_button'] as const;
+export const APP_OPTIONS = ['promo_banner', 'pickup_only', 'delivery_only', 'reorder_button', 'item_notes'] as const;
 export type AppOption = (typeof APP_OPTIONS)[number];
 /** How many extra options a Growth app may switch on. Pro is unlimited. */
 export const GROWTH_MAX_OPTIONS = 3;
@@ -308,7 +308,7 @@ export interface TrackedOrder {
   placedAt: string;
   updatedAt: string;
   branchName: string;
-  items: { name: string; quantity: number; unitPriceMinor: number }[];
+  items: { menuItemId: string | null; name: string; quantity: number; unitPriceMinor: number }[];
 }
 
 /** Steps shown on the tracking screen, in order. */

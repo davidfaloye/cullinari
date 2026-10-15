@@ -1,0 +1,15 @@
+{
+  "slug": "olaskitchen",
+  "appName": "Ola's Kitchen",
+  "bundleId": "com.cullinari.olaskitchen",
+  "scheme": "cullinari-olaskitchen",
+  "apiUrl": "http://localhost:4000",
+  "plan": "growth",
+  "configVersion": 1,
+  "appVersion": "1.0.0",
+  "buildNumber": 1,
+  "theme": { "primary": "#0f6b4f", "accent": "#b9e04c" },
+  "splash": null,
+  "layout": "list",
+  "domain": null
+}

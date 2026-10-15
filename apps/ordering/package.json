@@ -1,0 +1,53 @@
+{
+  "name": "@cullinari/ordering",
+  "version": "1.0.0",
+  "main": "expo-router/entry",
+  "dependencies": {
+    "expo": "~57.0.29",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "@cullinari/shared": "workspace:*",
+    "expo-router": "~57.0.27",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "expo-linking": "~57.0.13",
+    "expo-constants": "~57.0.22",
+    "expo-notifications": "~57.0.23",
+    "expo-device": "~57.0.2",
+    "expo-web-browser": "~57.0.3",
+    "expo-splash-screen": "~57.0.10",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "expo-image": "~57.0.5",
+    "react-native-web": "~0.21.0",
+    "react-dom": "19.2.3",
+    "@expo/metro-runtime": "~57.0.17"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3",
+    "jest-expo": "~57.0.6",
+    "jest": "^30.5.2",
+    "@types/jest": "^30.0.0",
+    "@react-native/jest-preset": "~0.86.3",
+    "@types/node": "^22.20.5"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "build": "echo 'ordering app is built per restaurant with EAS (see README)'",
+    "tenant:pull": "node scripts/tenant-pull.mjs",
+    "eas-build-post-install": "pnpm --filter @cullinari/shared build"
+  },
+  "private": true,
+  "jest": {
+    "preset": "jest-expo",
+    "testMatch": [
+      "**/__tests__/**/*.test.ts?(x)"
+    ]
+  }
+}

@@ -1,0 +1,92 @@
+# Builds one restaurant's ordering app with EAS Build, and optionally submits it to
+# Google Play and the App Store. Run from the Actions tab with the restaurant's slug.
+#
+# Needs: secret EXPO_TOKEN, secret CULLINARI_STAFF_KEY, variable CULLINARI_API_URL,
+# and an EAS project for the restaurant (eas.projectId in apps/ordering/tenants/<slug>.json).
+name: Build restaurant app
+
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: Restaurant slug (e.g. mamaskitchen)
+        required: true
+      platform:
+        description: Platform
+        type: choice
+        options: [all, android, ios]
+        default: all
+      submit:
+        description: Submit to Play Console and App Store Connect when the build finishes
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: app-build-${{ inputs.slug }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      SLUG: ${{ inputs.slug }}
+      PLATFORM: ${{ inputs.platform }}
+      SUBMIT: ${{ inputs.submit }}
+    steps:
+      - name: Check slug
+        run: |
+          [[ "$SLUG" =~ ^[a-z0-9-]{3,40}$ ]] || { echo "Invalid slug: $SLUG"; exit 1; }
+
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @cullinari/shared build
+
+      - name: Pull app config and bump build number
+        working-directory: apps/ordering
+        env:
+          CULLINARI_API_URL: ${{ vars.CULLINARI_API_URL }}
+          CULLINARI_STAFF_KEY: ${{ secrets.CULLINARI_STAFF_KEY }}
+        run: node scripts/tenant-pull.mjs "$SLUG" --select --bump
+
+      - name: Check the EAS project exists
+        working-directory: apps/ordering
+        run: |
+          node -e '
+            const t = require(`./tenants/${process.env.SLUG}.json`);
+            if (!t.eas?.projectId) {
+              console.error(`No eas.projectId in tenants/${process.env.SLUG}.json. See apps/ordering/README.md, "First build for a restaurant".`);
+              process.exit(1);
+            }'
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Typecheck
+        working-directory: apps/ordering
+        run: pnpm typecheck
+
+      - name: Start EAS build
+        working-directory: apps/ordering
+        run: |
+          extra=""
+          [ "$SUBMIT" = "true" ] && extra="--auto-submit"
+          eas build --platform "$PLATFORM" --profile production --non-interactive --no-wait $extra
+
+      - name: Save the new build number
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "apps/ordering/tenants/$SLUG.json"
+          [ -d "apps/ordering/tenants/$SLUG" ] && git add "apps/ordering/tenants/$SLUG"
+          git commit -m "Build $SLUG app ($(node -p "require('./apps/ordering/tenants/$SLUG.json').buildNumber"))" || echo "Nothing to commit"
+          git push

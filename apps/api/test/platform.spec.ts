@@ -279,7 +279,7 @@ describe('ordering app config', () => {
     const tooMany = await request(http)
       .post(`/internal/apps/${t.slug}/configs`)
       .set(STAFF)
-      .send({ ...growthConfig, options: { promo_banner: true, pickup_only: true, scheduled_orders: true, reorder_button: true } });
+      .send({ ...growthConfig, options: { promo_banner: true, pickup_only: true, item_notes: true, reorder_button: true } });
     expect(tooMany.status).toBe(403);
 
     await request(http).post(`/internal/apps/${t.slug}/configs/2/publish`).set(STAFF).expect(201);
