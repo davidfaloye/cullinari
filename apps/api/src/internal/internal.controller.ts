@@ -1,22 +1,10 @@
-import { Body, CanActivate, Controller, ExecutionContext, Get, Inject, Injectable, Param, ParseUUIDPipe, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { TENANT_STATUSES } from '@cullinari/shared';
 import { Public } from '../auth/auth.context';
-import { safeEqual } from '../common/crypto';
-import { forbidden } from '../common/errors';
 import { parse } from '../common/validate';
-import { AppConfig, CONFIG } from '../config';
+import { StaffKeyGuard } from './staff-key.guard';
 import { TenantsService } from './tenants.service';
-
-@Injectable()
-class StaffKeyGuard implements CanActivate {
-  constructor(@Inject(CONFIG) private readonly config: AppConfig) {}
-  canActivate(ctx: ExecutionContext) {
-    const key = ctx.switchToHttp().getRequest().headers['x-staff-key'];
-    if (typeof key !== 'string' || !safeEqual(key, this.config.STAFF_API_KEY)) throw forbidden('Staff key required');
-    return true;
-  }
-}
 
 const planCode = z.enum(['starter', 'growth', 'pro']);
 

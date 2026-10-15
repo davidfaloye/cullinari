@@ -3,6 +3,7 @@ import { and, desc, eq, gte, inArray, isNull, lt, notInArray, sql } from 'drizzl
 import {
   allowedNextStatuses,
   ErrorCode,
+  priceCart,
   STATUS_ROLES,
   type FulfilmentType,
   type OrderStatus,
@@ -40,7 +41,8 @@ export interface PlaceOrderInput {
   deliveryAddress?: string;
   note?: string;
   pushToken?: string;
-  callbackUrl?: string;
+  /** App deep link to return to after card checkout, e.g. olaskitchen://payment */
+  returnUrl?: string;
 }
 
 type TenantRow = typeof tenants.$inferSelect;
@@ -107,10 +109,11 @@ export class OrdersService {
         const m = byId.get(i.menuItemId)!;
         return { menuItemId: m.id, name: m.name, unitPriceMinor: m.priceMinor, quantity: i.quantity, note: i.note ?? null };
       });
-      const subtotal = lines.reduce((s, l) => s + l.unitPriceMinor * l.quantity, 0);
-      const deliveryFee = input.fulfilment === 'delivery' ? settings.deliveryFeeMinor : 0;
-      const tax = Math.round((subtotal * settings.taxRateBps) / 10_000);
-      const total = subtotal + deliveryFee + tax;
+      const priced = priceCart(
+        lines.map((l) => ({ priceMinor: l.unitPriceMinor, quantity: l.quantity })),
+        { fulfilment: input.fulfilment, deliveryFeeMinor: settings.deliveryFeeMinor, taxRateBps: settings.taxRateBps },
+      );
+      const { subtotalMinor: subtotal, deliveryFeeMinor: deliveryFee, taxMinor: tax, totalMinor: total } = priced;
 
       if (input.fulfilment === 'delivery' && !input.deliveryAddress?.trim()) {
         throw new AppError(ErrorCode.VALIDATION, 'Add a delivery address', 400);
@@ -182,6 +185,7 @@ export class OrdersService {
           amountMinor: total,
           status: 'pending',
           reference,
+          returnUrl: input.returnUrl ?? null,
         });
       }
 
@@ -199,7 +203,8 @@ export class OrdersService {
           amountMinor: order.totalMinor,
           currency: tenant.currency,
           reference,
-          callbackUrl: input.callbackUrl,
+          // Paystack sends the customer here; the API confirms payment and redirects into the app.
+          callbackUrl: `${this.config.PUBLIC_API_URL}/public/${tenant.slug}/payments/return`,
           metadata: { tenant: tenant.slug, orderNumber: order.number },
         });
         payment = { ...init, publicKey: placed.publicKey };

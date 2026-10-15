@@ -254,3 +254,92 @@ describe('Paystack', () => {
     await request(http).patch(`/orders/${placed.body.orderId}/status`).set(bearer(t.token)).send({ status: 'accepted' }).expect(200);
   });
 });
+
+describe('ordering app config', () => {
+  const growthConfig = {
+    appName: 'Test Kitchen',
+    theme: { primary: '#0f6b4f', accent: '#b9e04c' },
+    splash: { background: '#0f5c45' },
+    layout: 'grid',
+    options: { promo_banner: true, pickup_only: true },
+    promoText: '10% off on Fridays',
+  };
+
+  it('rejects options the plan does not include, and accepts them on Growth', async () => {
+    const t = await makeTenant(app, 'starter');
+    const denied = await request(http).post(`/internal/apps/${t.slug}/configs`).set(STAFF).send(growthConfig);
+    expect(denied.status).toBe(403);
+    expect(denied.body.code).toBe(ErrorCode.PLAN_FEATURE_LOCKED);
+
+    await request(http).patch(`/internal/tenants/${t.id}`).set(STAFF).send({ planCode: 'growth' }).expect(200);
+    const created = await request(http).post(`/internal/apps/${t.slug}/configs`).set(STAFF).send(growthConfig);
+    expect(created.status).toBe(201);
+    expect(created.body.version).toBe(2);
+
+    const tooMany = await request(http)
+      .post(`/internal/apps/${t.slug}/configs`)
+      .set(STAFF)
+      .send({ ...growthConfig, options: { promo_banner: true, pickup_only: true, scheduled_orders: true, reorder_button: true } });
+    expect(tooMany.status).toBe(403);
+
+    await request(http).post(`/internal/apps/${t.slug}/configs/2/publish`).set(STAFF).expect(201);
+    const pub = await request(http).get(`/public/${t.slug}`);
+    expect(pub.body.app).toMatchObject({ layout: 'grid', promoText: '10% off on Fridays', options: { promo_banner: true, pickup_only: true } });
+
+    // A downgrade masks the extras straight away; the stored config is untouched.
+    await request(http).patch(`/internal/tenants/${t.id}`).set(STAFF).send({ planCode: 'starter' }).expect(200);
+    const after = await request(http).get(`/public/${t.slug}`);
+    expect(after.body.app).toMatchObject({ layout: 'list', splash: null, options: {}, promoText: null });
+
+    const build = await request(http).get(`/internal/apps/${t.slug}/build-config`).set(STAFF);
+    expect(build.body).toMatchObject({ slug: t.slug, bundleId: expect.stringMatching(/^com\.cullinari\./), scheme: expect.stringMatching(/^cullinari-/), layout: 'list' });
+  });
+});
+
+describe('card payment return', () => {
+  const secret = 'sk_test_return123';
+  let t: TestTenant;
+  let item: { id: string };
+  let realFetch: typeof fetch;
+
+  beforeAll(async () => {
+    t = await makeTenant(app);
+    item = await addMenuItem(app, t, 100000);
+    await request(http).patch('/settings').set(bearer(t.token)).send({ paystackSecretKey: secret }).expect(200);
+    realFetch = global.fetch;
+    global.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes('/transaction/initialize')) {
+        const body = JSON.parse(String(init?.body));
+        expect(body.callback_url).toBe(`${process.env.PUBLIC_API_URL ?? 'http://localhost:4000'}/public/${t.slug}/payments/return`);
+        return new Response(JSON.stringify({ status: true, data: { authorization_url: 'https://checkout.paystack.com/y', access_code: 'ac', reference: body.reference } }));
+      }
+      if (u.includes('/transaction/verify/')) {
+        return new Response(JSON.stringify({ status: true, data: { status: 'success', amount: 200000, currency: 'NGN' } }));
+      }
+      return realFetch(url, init);
+    }) as typeof fetch;
+  });
+  afterAll(() => {
+    global.fetch = realFetch;
+  });
+
+  it('refuses web return URLs it does not trust', async () => {
+    const res = await request(http)
+      .post(`/public/${t.slug}/orders`)
+      .send(orderBody(t, item.id, { paymentMethod: 'paystack', returnUrl: 'https://evil.example/steal' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('confirms the payment and redirects into the app with the tracking token', async () => {
+    const placed = await request(http)
+      .post(`/public/${t.slug}/orders`)
+      .send(orderBody(t, item.id, { paymentMethod: 'paystack', returnUrl: 'cullinari-test://payment' }));
+    expect(placed.status).toBe(201);
+    const back = await request(http).get(`/public/${t.slug}/payments/return?trxref=x&reference=${placed.body.payment.reference}`);
+    expect(back.status).toBe(302);
+    expect(back.headers.location).toBe(`cullinari-test://payment?token=${placed.body.trackingToken}&payment=paid`);
+    const track = await request(http).get(`/public/${t.slug}/orders/${placed.body.trackingToken}`);
+    expect(track.body.paymentStatus).toBe('paid');
+  });
+});

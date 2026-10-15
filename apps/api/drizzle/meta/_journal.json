@@ -15,6 +15,13 @@
       "when": 1792055707403,
       "tag": "0001_row_level_security",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792057752347,
+      "tag": "0002_app_options",
+      "breakpoints": true
     }
   ]
 }

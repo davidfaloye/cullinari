@@ -218,3 +218,124 @@ export interface OrderView {
   updatedAt: string;
   completedAt: string | null;
 }
+
+/* ---------- Ordering app ---------- */
+
+export const APP_LAYOUTS = ['list', 'grid', 'featured'] as const;
+export type AppLayout = (typeof APP_LAYOUTS)[number];
+
+/** Extra app options sold on Growth ("a few, chosen at setup") and Pro ("all"). */
+export const APP_OPTIONS = ['promo_banner', 'scheduled_orders', 'pickup_only', 'delivery_only', 'reorder_button'] as const;
+export type AppOption = (typeof APP_OPTIONS)[number];
+/** How many extra options a Growth app may switch on. Pro is unlimited. */
+export const GROWTH_MAX_OPTIONS = 3;
+
+export interface AppTheme {
+  primary: string;
+  accent: string;
+  logoUrl?: string;
+  iconUrl?: string;
+}
+
+export interface PublicBranch {
+  id: string;
+  name: string;
+  address: string | null;
+  phone: string | null;
+  hours: Record<string, { open: string; close: string } | null> | null;
+  isOpen: boolean;
+}
+
+/** What GET /public/:slug returns: everything the app needs at launch. */
+export interface PublicRestaurantConfig {
+  name: string;
+  slug: string;
+  currency: string;
+  ordering: { open: boolean; reason: 'paused' | 'daily_limit' | null };
+  branches: PublicBranch[];
+  payments: { payOnDelivery: boolean; paystack: boolean; paystackPublicKey: string | null };
+  deliveryFeeMinor: number;
+  taxRateBps: number;
+  app: {
+    version: number;
+    name: string;
+    theme: AppTheme;
+    /** null unless the plan includes a custom splash screen */
+    splash: { imageUrl?: string; background?: string } | null;
+    /** always 'list' unless the plan includes custom layouts */
+    layout: AppLayout;
+    options: Partial<Record<AppOption, boolean>>;
+    promoText: string | null;
+  } | null;
+}
+
+export interface PublicMenu {
+  categories: { id: string; name: string }[];
+  items: {
+    id: string;
+    categoryId: string | null;
+    name: string;
+    description: string | null;
+    priceMinor: number;
+    imageUrl: string | null;
+    isAvailable: boolean;
+  }[];
+}
+
+export interface PlacedOrder {
+  orderId: string;
+  number: number;
+  status: OrderStatus;
+  trackingToken: string;
+  subtotalMinor: number;
+  deliveryFeeMinor: number;
+  taxMinor: number;
+  totalMinor: number;
+  currency: string;
+  payment: { authorizationUrl: string; accessCode: string; reference: string; publicKey: string | null } | null;
+}
+
+export interface TrackedOrder {
+  number: number;
+  status: OrderStatus;
+  fulfilment: FulfilmentType;
+  paymentMethod: PaymentMethod;
+  paymentStatus: PaymentStatus;
+  subtotalMinor: number;
+  deliveryFeeMinor: number;
+  taxMinor: number;
+  totalMinor: number;
+  placedAt: string;
+  updatedAt: string;
+  branchName: string;
+  items: { name: string; quantity: number; unitPriceMinor: number }[];
+}
+
+/** Steps shown on the tracking screen, in order. */
+export function trackingSteps(fulfilment: FulfilmentType): OrderStatus[] {
+  return fulfilment === 'delivery'
+    ? ['placed', 'accepted', 'preparing', 'ready', 'out_for_delivery', 'completed']
+    : ['placed', 'accepted', 'preparing', 'ready', 'completed'];
+}
+
+/** Customer-facing wording for each status. */
+export const CUSTOMER_STATUS_TEXT: Record<OrderStatus, string> = {
+  placed: 'Order sent',
+  accepted: 'Accepted by the restaurant',
+  preparing: 'Being prepared',
+  ready: 'Ready',
+  out_for_delivery: 'On its way',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+};
+
+/** Same pricing rule as the API, so the app can show totals before checkout. */
+export function priceCart(
+  lines: { priceMinor: number; quantity: number }[],
+  opts: { fulfilment: FulfilmentType; deliveryFeeMinor: number; taxRateBps: number },
+) {
+  const subtotalMinor = lines.reduce((s, l) => s + l.priceMinor * l.quantity, 0);
+  const deliveryFeeMinor = opts.fulfilment === 'delivery' ? opts.deliveryFeeMinor : 0;
+  const taxMinor = Math.round((subtotalMinor * opts.taxRateBps) / 10_000);
+  return { subtotalMinor, deliveryFeeMinor, taxMinor, totalMinor: subtotalMinor + deliveryFeeMinor + taxMinor };
+}

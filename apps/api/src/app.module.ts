@@ -1,6 +1,8 @@
 import { Controller, Get, Module } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
+import { AppConfigService } from './apps/app-config.service';
+import { AppsController } from './apps/apps.controller';
 import { AuthController } from './auth/auth.controller';
 import { Public } from './auth/auth.context';
 import { AuthGuard } from './auth/auth.guard';
@@ -56,6 +58,7 @@ const config = loadConfig();
     PublicController,
     WebhooksController,
     InternalController,
+    AppsController,
   ],
   providers: [
     { provide: CONFIG, useValue: config },
@@ -68,6 +71,7 @@ const config = loadConfig();
     PaystackService,
     PushService,
     TenantsService,
+    AppConfigService,
     EventsGateway,
     { provide: APP_GUARD, useExisting: AuthGuard },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

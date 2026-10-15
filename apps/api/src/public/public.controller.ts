@@ -1,7 +1,9 @@
-import { Body, Controller, Get, HttpCode, Inject, Ip, Param, Post, Query } from '@nestjs/common';
-import { and, asc, desc, eq, isNotNull, isNull, or } from 'drizzle-orm';
+import { Body, Controller, Get, HttpCode, Inject, Ip, Logger, Param, Post, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { and, asc, eq, isNull, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { ErrorCode } from '@cullinari/shared';
+import { ErrorCode, type PublicRestaurantConfig } from '@cullinari/shared';
+import { AppConfigService } from '../apps/app-config.service';
 import { Public } from '../auth/auth.context';
 import { isOpenNow } from '../branches/hours';
 import { decryptSecret } from '../common/crypto';
@@ -10,7 +12,7 @@ import { RateLimiter } from '../common/rate-limit';
 import { parse } from '../common/validate';
 import { AppConfig, CONFIG } from '../config';
 import { Db } from '../db/db.service';
-import { appConfigs, branches, menuCategories, menuItems, orderItems, orders, tenants, tenantSettings } from '../db/schema';
+import { branches, menuCategories, menuItems, orderItems, orders, payments, tenants, tenantSettings } from '../db/schema';
 import { EntitlementsService } from '../entitlements/entitlements.service';
 import { OrdersService } from '../orders/orders.service';
 import { PaystackService } from '../payments/paystack.service';
@@ -40,7 +42,8 @@ const orderSchema = z.object({
   deliveryAddress: z.string().trim().max(300).optional(),
   note: z.string().trim().max(300).optional(),
   pushToken: z.string().max(200).optional(),
-  callbackUrl: z.string().url().optional(),
+  /** The app's own deep link (custom scheme) to come back to after card checkout. */
+  returnUrl: z.string().max(300).optional(),
 });
 
 /**
@@ -55,22 +58,21 @@ export class PublicController {
     private readonly orders: OrdersService,
     private readonly entitlements: EntitlementsService,
     private readonly paystack: PaystackService,
+    private readonly apps: AppConfigService,
     @Inject(CONFIG) private readonly config: AppConfig,
   ) {}
 
+  private readonly logger = new Logger('Public');
+
   /** Everything the app needs at launch: branding, branches, whether ordering is open, payment options. */
   @Get()
-  async config_(@Param('slug') slug: string) {
+  async config_(@Param('slug') slug: string): Promise<PublicRestaurantConfig> {
     const tenant = await this.tenant(slug);
     const usage = await this.entitlements.usage(tenant.id, tenant.timezone);
+    const { entitlements } = await this.entitlements.getEntitlements(tenant.id);
     return this.db.tenant(tenant.id, async (tx) => {
       const [settings] = await tx.select().from(tenantSettings).where(eq(tenantSettings.tenantId, tenant.id));
-      const [app] = await tx
-        .select()
-        .from(appConfigs)
-        .where(isNotNull(appConfigs.publishedAt))
-        .orderBy(desc(appConfigs.version))
-        .limit(1);
+      const app = await this.apps.latestPublished(tx);
       const branchList = await tx
         .select({ id: branches.id, name: branches.name, address: branches.address, phone: branches.phone, hours: branches.hours })
         .from(branches)
@@ -93,7 +95,8 @@ export class PublicController {
           paystackPublicKey: settings?.paystackPublicKey ?? null,
         },
         deliveryFeeMinor: settings?.deliveryFeeMinor ?? 0,
-        app: app ? { version: app.version, name: app.appName, theme: app.theme, splash: app.splash, layout: app.layout, features: app.features } : null,
+        taxRateBps: settings?.taxRateBps ?? 0,
+        app: app ? (({ domain: _domain, ...rest }) => rest)(this.apps.effective(app, entitlements)) : null,
       };
     });
   }
@@ -131,6 +134,9 @@ export class PublicController {
   async place(@Param('slug') slug: string, @Body() body: unknown, @Ip() ip: string) {
     checkoutLimiter.check(`${ip}:${slug}`);
     const input = parse(orderSchema, body);
+    if (input.returnUrl && !this.isAllowedReturnUrl(input.returnUrl)) {
+      throw new AppError(ErrorCode.VALIDATION, 'returnUrl must be an app link', 400);
+    }
     const tenant = await this.tenant(slug);
     return this.orders.place(tenant, input);
   }
@@ -184,9 +190,72 @@ export class PublicController {
     return { status: outcome.status };
   }
 
+  /**
+   * Paystack sends the customer here after checkout (with ?reference=). We confirm the payment
+   * with Paystack, then redirect into the app at its returnUrl with the order's tracking token.
+   */
+  @Get('payments/return')
+  async paymentReturn(@Param('slug') slug: string, @Query('reference') reference: string | undefined, @Res() res: Response) {
+    const tenant = await this.tenant(slug);
+    if (!reference) throw notFound('Payment');
+    const found = await this.db.tenant(tenant.id, async (tx) => {
+      const [row] = await tx
+        .select({ returnUrl: payments.returnUrl, token: orders.trackingToken, secretEnc: tenantSettings.paystackSecretKeyEnc })
+        .from(payments)
+        .innerJoin(orders, eq(orders.id, payments.orderId))
+        .innerJoin(tenantSettings, eq(tenantSettings.tenantId, payments.tenantId))
+        .where(eq(payments.reference, reference));
+      return row;
+    });
+    if (!found) throw notFound('Payment');
+
+    let status = 'pending';
+    try {
+      const verified = await this.paystack.verify(decryptSecret(found.secretEnc!, this.config.DATA_KEY), reference);
+      status = (await this.orders.confirmPayment(tenant.id, reference, verified)).status;
+    } catch (err) {
+      // The webhook will still confirm it; the app polls the order either way.
+      this.logger.warn(`Payment return verify failed for ${reference}: ${String(err)}`);
+    }
+
+    const query = `token=${encodeURIComponent(found.token)}&payment=${status}`;
+    if (found.returnUrl && this.isAllowedReturnUrl(found.returnUrl)) {
+      return res.redirect(302, `${found.returnUrl}${found.returnUrl.includes('?') ? '&' : '?'}${query}`);
+    }
+    // No app link (e.g. opened in a desktop browser): show a plain page.
+    res.type('html').send(
+      `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(tenant.name)}</title>` +
+        `<body style="font-family:system-ui;padding:32px;text-align:center"><h1>${status === 'paid' ? 'Payment received' : 'Payment pending'}</h1>` +
+        `<p>Return to the ${escapeHtml(tenant.name)} app to follow your order.</p></body>`,
+    );
+  }
+
+  /**
+   * Only redirect into apps: custom schemes (cullinari-mamaskitchen://, exp:// in development)
+   * or a web origin this API already trusts. Prevents using the return page as an open redirect.
+   */
+  private isAllowedReturnUrl(url: string): boolean {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return false;
+    }
+    const scheme = parsed.protocol.replace(':', '');
+    if (['javascript', 'data', 'file', 'vbscript'].includes(scheme)) return false;
+    if (scheme === 'http' || scheme === 'https') {
+      return this.config.CORS_ORIGINS.split(',').map((o) => o.trim()).includes(parsed.origin);
+    }
+    return /^[a-z][a-z0-9+.-]*$/.test(scheme);
+  }
+
   private async tenant(slug: string) {
     const [t] = await this.db.global((tx) => tx.select().from(tenants).where(eq(tenants.slug, slug.toLowerCase())));
     if (!t || t.status === 'suspended') throw notFound('Restaurant');
     return t;
   }
+}
+
+function escapeHtml(s: string) {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }

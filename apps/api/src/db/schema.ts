@@ -321,6 +321,8 @@ export const payments = pgTable(
     /** pending | paid | failed | refunded */
     status: text('status').notNull(),
     reference: text('reference').notNull().unique(),
+    /** Where to send the customer back to after Paystack checkout (the app's deep link). */
+    returnUrl: text('return_url'),
     raw: jsonb('raw'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -351,7 +353,10 @@ export const appConfigs = pgTable(
     splash: jsonb('splash').$type<{ imageUrl?: string; background?: string } | null>(),
     layout: text('layout').notNull().default('list'),
     features: jsonb('features').$type<Record<string, boolean>>().notNull().default(sql`'{}'::jsonb`),
+    promoText: text('promo_text'),
     domain: text('domain'),
+    /** Who requested this version and any note for the build. */
+    createdBy: uuid('created_by'),
     publishedAt: timestamp('published_at', { withTimezone: true }),
     createdAt: createdAt(),
   },

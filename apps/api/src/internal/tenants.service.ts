@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { eq, sql } from 'drizzle-orm';
 import { ErrorCode, type PlanCode, type TenantStatus } from '@cullinari/shared';
+import { bundleIdFor } from '../apps/app-config.service';
 import { hashPassword } from '../auth/auth.service';
 import { AuditService } from '../common/audit.service';
 import { tempPassword } from '../common/crypto';
@@ -63,7 +64,7 @@ export class TenantsService {
         tenantId: tenant.id,
         version: 1,
         appName: input.name,
-        bundleId: `com.cullinari.${input.slug.replace(/[^a-z0-9]/g, '')}`,
+        bundleId: bundleIdFor(input.slug),
         theme: input.theme ?? { primary: '#0f6b4f', accent: '#b9e04c' },
         layout: 'list',
         publishedAt: new Date(),
