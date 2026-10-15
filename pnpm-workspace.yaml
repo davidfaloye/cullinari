@@ -5,3 +5,6 @@ packages:
 onlyBuiltDependencies:
   - "@nestjs/core"
   - "esbuild"
+
+# Drizzle lists every database driver as an optional peer; only install what we use.
+autoInstallPeers: false
