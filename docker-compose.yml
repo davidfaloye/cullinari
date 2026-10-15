@@ -1,0 +1,22 @@
+# Local development services. `docker compose up -d` then `pnpm db:migrate && pnpm db:seed`.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Creates the owner and runtime roles and the cullinari database on first start.
+      - ./scripts/db-setup.sql:/docker-entrypoint-initdb.d/01-setup.sql:ro
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:
